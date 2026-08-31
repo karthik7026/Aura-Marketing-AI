@@ -11,6 +11,7 @@ import {
   BarChart3, TrendingUp, Zap, Shield,
   AlertTriangle,
 } from 'lucide-react';
+import { API_BASE_URL } from '@/lib/api';
 
 interface ProfileData {
   id: string;
@@ -288,7 +289,7 @@ export default function MarketingPage() {
   const loadDashboardData = async (sessionToken: string, fallbackEmail: string | null) => {
     setIsLoading(true);
     try {
-      const profileRes = await fetch('http://127.0.0.1:8000/api/auth/me', {
+      const profileRes = await fetch(`${API_BASE_URL}/api/auth/me`, {
         headers: { 'Authorization': `Bearer ${sessionToken}` }
       });
 
@@ -309,7 +310,7 @@ export default function MarketingPage() {
       }
 
       // Fetch Wallet Info
-      const walletRes = await fetch('http://127.0.0.1:8000/api/wallet/balance', {
+      const walletRes = await fetch(`${API_BASE_URL}/api/wallet/balance`, {
         headers: { 'Authorization': `Bearer ${sessionToken}` }
       });
       if (walletRes.ok) {
@@ -342,7 +343,7 @@ export default function MarketingPage() {
     const savedToken = token || localStorage.getItem('auth_token');
     if (!savedToken) return;
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/image/gallery', {
+      const res = await fetch(`${API_BASE_URL}/api/image/gallery`, {
         headers: { 'Authorization': `Bearer ${savedToken}` }
       });
       if (res.ok) {
@@ -379,7 +380,7 @@ export default function MarketingPage() {
     }, 300);
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/marketing/process', {
+      const res = await fetch(`${API_BASE_URL}/api/marketing/process`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -648,7 +649,7 @@ export default function MarketingPage() {
     }, 150);
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/image/generate', {
+      const res = await fetch(`${API_BASE_URL}/api/image/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -739,7 +740,7 @@ export default function MarketingPage() {
       }
 
       // Trigger FastAPI image processing API (with fallback configuration)
-      const res = await fetch('http://127.0.0.1:8000/api/image/edit', {
+      const res = await fetch(`${API_BASE_URL}/api/image/edit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -816,7 +817,7 @@ export default function MarketingPage() {
   const fetchAiConfigStatus = async () => {
     if (!token) return;
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/image/ai/config-status', {
+      const res = await fetch(`${API_BASE_URL}/api/image/ai/config-status`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -834,7 +835,7 @@ export default function MarketingPage() {
     if (!promptToUse.trim()) return;
     setImageGeneratingProgress(true);
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/image/ai/edit', {
+      const res = await fetch(`${API_BASE_URL}/api/image/ai/edit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ source_url: 'https://images.unsplash.com/photo-1542744094-3a31f103e35f', tool: 'reimagine', prompt: promptToUse })
@@ -881,7 +882,7 @@ export default function MarketingPage() {
         body.style_preset = aiStylePreset;
       }
 
-      const res = await fetch('http://127.0.0.1:8000/api/image/ai/edit', {
+      const res = await fetch(`${API_BASE_URL}/api/image/ai/edit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -918,7 +919,7 @@ export default function MarketingPage() {
   const fetchSeoSuggestions = async (query: string) => {
     if (!token || query.length < 2) return;
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/seo/suggest?q=${encodeURIComponent(query)}`, {
+      const res = await fetch(`${API_BASE_URL}/api/seo/suggest?q=${encodeURIComponent(query)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -931,10 +932,10 @@ export default function MarketingPage() {
     setSeoLoading(true);
     try {
       const [trendsRes, serpRes] = await Promise.all([
-        fetch(`http://127.0.0.1:8000/api/seo/trends?keyword=${encodeURIComponent(keyword)}`, {
+        fetch(`${API_BASE_URL}/api/seo/trends?keyword=${encodeURIComponent(keyword)}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`http://127.0.0.1:8000/api/seo/serp-count?q=${encodeURIComponent(keyword)}`, {
+        fetch(`${API_BASE_URL}/api/seo/serp-count?q=${encodeURIComponent(keyword)}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
       ]);
@@ -951,7 +952,7 @@ export default function MarketingPage() {
     setLighthouseLoading(true);
     setLighthouseResult(null);
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/webaudit/lighthouse', {
+      const res = await fetch(`${API_BASE_URL}/api/webaudit/lighthouse`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ url, strategy })
@@ -968,7 +969,7 @@ export default function MarketingPage() {
     setCompetitorLoading(true);
     setCompetitorResult(null);
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/competitor/analyze', {
+      const res = await fetch(`${API_BASE_URL}/api/competitor/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ competitor_url: competitorUrl })
@@ -983,7 +984,7 @@ export default function MarketingPage() {
   const fetchRealAnalytics = async () => {
     if (!token) return;
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/analytics/dashboard', {
+      const res = await fetch(`${API_BASE_URL}/api/analytics/dashboard`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -994,7 +995,7 @@ export default function MarketingPage() {
   const fetchRealNotifications = async () => {
     if (!token) return;
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/notifications', {
+      const res = await fetch(`${API_BASE_URL}/api/notifications`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -1006,7 +1007,7 @@ export default function MarketingPage() {
   const markNotificationsRead = async () => {
     if (!token) return;
     try {
-      await fetch('http://127.0.0.1:8000/api/notifications/mark-read', {
+      await fetch(`${API_BASE_URL}/api/notifications/mark-read`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -1022,7 +1023,7 @@ export default function MarketingPage() {
     setShowDoctorModal(true);
     try {
       const activeToken = token || localStorage.getItem('auth_token') || 'demo_token';
-      const res = await fetch('http://127.0.0.1:8000/api/marketing-doctor/diagnose', {
+      const res = await fetch(`${API_BASE_URL}/api/marketing-doctor/diagnose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
         body: JSON.stringify({ website_url: urlToTest })
@@ -1043,7 +1044,7 @@ export default function MarketingPage() {
     try {
       const targetUrl = url || doctorUrlInput || 'https://example.com';
       const activeToken = token || localStorage.getItem('auth_token') || 'demo_token';
-      const res = await fetch(`http://127.0.0.1:8000/api/seo/top10-opportunities?website_url=${encodeURIComponent(targetUrl)}`, {
+      const res = await fetch(`${API_BASE_URL}/api/seo/top10-opportunities?website_url=${encodeURIComponent(targetUrl)}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${activeToken}` }
       });
@@ -1062,7 +1063,7 @@ export default function MarketingPage() {
     setShowWhyNotTop10Modal(true);
     try {
       const activeToken = token || localStorage.getItem('auth_token') || 'demo_token';
-      const res = await fetch('http://127.0.0.1:8000/api/seo/why-not-top10', {
+      const res = await fetch(`${API_BASE_URL}/api/seo/why-not-top10`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
         body: JSON.stringify({ keyword, target_url: targetUrl })
@@ -1080,7 +1081,7 @@ export default function MarketingPage() {
   const fetchCampaignsList = async () => {
     try {
       const activeToken = token || localStorage.getItem('auth_token') || 'demo_token';
-      const res = await fetch('http://127.0.0.1:8000/api/campaigns/list', {
+      const res = await fetch(`${API_BASE_URL}/api/campaigns/list`, {
         headers: { 'Authorization': `Bearer ${activeToken}` }
       });
       const data = await res.json();
@@ -1091,7 +1092,7 @@ export default function MarketingPage() {
   const generateAdCreativesAction = async (productName: string, audience: string, platform: string) => {
     try {
       const activeToken = token || localStorage.getItem('auth_token') || 'demo_token';
-      const res = await fetch('http://127.0.0.1:8000/api/campaigns/ads/generate-creatives', {
+      const res = await fetch(`${API_BASE_URL}/api/campaigns/ads/generate-creatives`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
         body: JSON.stringify({ product_name: productName, target_audience: audience, platform })
@@ -1105,7 +1106,7 @@ export default function MarketingPage() {
   const generateSocialCalendarAction = async (brandName: string) => {
     try {
       const activeToken = token || localStorage.getItem('auth_token') || 'demo_token';
-      const res = await fetch('http://127.0.0.1:8000/api/campaigns/social/calendar', {
+      const res = await fetch(`${API_BASE_URL}/api/campaigns/social/calendar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
         body: JSON.stringify({ brand_name: brandName })
@@ -1119,7 +1120,7 @@ export default function MarketingPage() {
   const generateEmailSequenceAction = async (productName: string, seqType: string) => {
     try {
       const activeToken = token || localStorage.getItem('auth_token') || 'demo_token';
-      const res = await fetch('http://127.0.0.1:8000/api/campaigns/email/generate-sequence', {
+      const res = await fetch(`${API_BASE_URL}/api/campaigns/email/generate-sequence`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
         body: JSON.stringify({ product_name: productName, sequence_type: seqType })
@@ -1139,7 +1140,7 @@ export default function MarketingPage() {
   const fetchChatChannels = async () => {
     if (!token) return;
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/chat/channels', {
+      const res = await fetch(`${API_BASE_URL}/api/chat/channels`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -1153,7 +1154,7 @@ export default function MarketingPage() {
     if (!cleanName) return;
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/chat/channels', {
+      const res = await fetch(`${API_BASE_URL}/api/chat/channels`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ name: cleanName, description: `Custom channel #${cleanName}` })
@@ -1179,7 +1180,7 @@ export default function MarketingPage() {
     }
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/interview/schedule-email', {
+      const res = await fetch(`${API_BASE_URL}/api/interview/schedule-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
@@ -1207,7 +1208,7 @@ export default function MarketingPage() {
     if (!token) return;
     setChatLoading(true);
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/chat/messages?channel_id=${encodeURIComponent(channelId)}`, {
+      const res = await fetch(`${API_BASE_URL}/api/chat/messages?channel_id=${encodeURIComponent(channelId)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -1222,7 +1223,7 @@ export default function MarketingPage() {
     if (!textToSend) return;
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/chat/messages', {
+      const res = await fetch(`${API_BASE_URL}/api/chat/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
@@ -1243,7 +1244,7 @@ export default function MarketingPage() {
   const fetchScheduledMeetings = async () => {
     if (!token) return;
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/meetings/scheduled', {
+      const res = await fetch(`${API_BASE_URL}/api/meetings/scheduled`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -1259,7 +1260,7 @@ export default function MarketingPage() {
     }
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/meetings/schedule', {
+      const res = await fetch(`${API_BASE_URL}/api/meetings/schedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
@@ -1314,7 +1315,7 @@ export default function MarketingPage() {
   const fetchInterviewQuestions = async (roleName: string) => {
     if (!token) return;
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/interview/questions?role=${encodeURIComponent(roleName)}&level=${encodeURIComponent(interviewLevel)}`, {
+      const res = await fetch(`${API_BASE_URL}/api/interview/questions?role=${encodeURIComponent(roleName)}&level=${encodeURIComponent(interviewLevel)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -1400,7 +1401,7 @@ export default function MarketingPage() {
     setInterviewStatus('evaluating');
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/interview/evaluate-answer', {
+      const res = await fetch(`${API_BASE_URL}/api/interview/evaluate-answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
@@ -1457,7 +1458,7 @@ export default function MarketingPage() {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/interview/generate-scorecard', {
+      const res = await fetch(`${API_BASE_URL}/api/interview/generate-scorecard`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
@@ -1692,7 +1693,7 @@ export default function MarketingPage() {
         return;
       }
 
-      const res = await fetch('http://127.0.0.1:8000/api/video/generate', {
+      const res = await fetch(`${API_BASE_URL}/api/video/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1813,7 +1814,7 @@ export default function MarketingPage() {
     if (!token) return;
 
     try {
-      const orderRes = await fetch('http://127.0.0.1:8000/api/wallet/create-razorpay-order', {
+      const orderRes = await fetch(`${API_BASE_URL}/api/wallet/create-razorpay-order`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1868,7 +1869,7 @@ export default function MarketingPage() {
 
   const verifyAndCreditPayment = async (razorpayPayload: any, planName: string, price: number, tokens: number) => {
     try {
-      const verifyRes = await fetch('http://127.0.0.1:8000/api/wallet/verify-payment', {
+      const verifyRes = await fetch(`${API_BASE_URL}/api/wallet/verify-payment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1924,7 +1925,7 @@ export default function MarketingPage() {
           <div>
             <span className="font-bold block">Can&apos;t reach the backend</span>
             <span className="text-amber-400/80">
-              No connection to http://127.0.0.1:8000 — start it with <code>python run_server.py</code> and refresh.
+              No connection to {API_BASE_URL} — start it with <code>python run_server.py</code> and refresh.
             </span>
           </div>
         </div>

@@ -7,6 +7,7 @@ import {
   User, Coins, CreditCard, ChevronRight, CheckCircle, RefreshCw, Landmark, History,
   ArrowLeft, Info, AlertTriangle, Sparkles
 } from 'lucide-react';
+import { API_BASE_URL } from '@/lib/api';
 
 interface ProfileData {
   id: string;
@@ -129,7 +130,7 @@ export default function WalletPage() {
   const loadWalletData = async (sessionToken: string, fallbackEmail: string | null) => {
     setIsLoading(true);
     try {
-      const profileRes = await fetch('http://127.0.0.1:8000/api/auth/me', {
+      const profileRes = await fetch(`${API_BASE_URL}/api/auth/me`, {
         headers: { 'Authorization': `Bearer ${sessionToken}` }
       });
 
@@ -145,7 +146,7 @@ export default function WalletPage() {
         setProfile(pData);
       }
 
-      const walletRes = await fetch('http://127.0.0.1:8000/api/wallet/balance', {
+      const walletRes = await fetch(`${API_BASE_URL}/api/wallet/balance`, {
         headers: { 'Authorization': `Bearer ${sessionToken}` }
       });
       if (walletRes.ok) {
@@ -177,7 +178,7 @@ export default function WalletPage() {
     setIsProcessingCheckout(true);
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/wallet/create-razorpay-order', {
+      const res = await fetch(`${API_BASE_URL}/api/wallet/create-razorpay-order`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -267,7 +268,7 @@ export default function WalletPage() {
       handler: async function (response: any) {
         setIsProcessingCheckout(true);
         try {
-          const verifyRes = await fetch('http://127.0.0.1:8000/api/wallet/verify-payment', {
+          const verifyRes = await fetch(`${API_BASE_URL}/api/wallet/verify-payment`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -312,7 +313,7 @@ export default function WalletPage() {
     setIsProcessingCheckout(true);
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/wallet/verify-payment', {
+      const res = await fetch(`${API_BASE_URL}/api/wallet/verify-payment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

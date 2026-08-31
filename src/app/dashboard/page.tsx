@@ -7,6 +7,7 @@ import {
   Sparkles, Menu, Coins, LogOut, Settings, Plus, Send, Key, Lock, CheckCircle, RefreshCw, Terminal, Download, Target,
   AlertTriangle,
 } from 'lucide-react';
+import { API_BASE_URL } from '@/lib/api';
 
 interface ProfileData {
   id: string;
@@ -73,7 +74,7 @@ export default function DashboardPage() {
     setIsLoading(true);
     try {
       // Fetch Profile
-      const profileRes = await fetch('http://127.0.0.1:8000/api/auth/me', {
+      const profileRes = await fetch(`${API_BASE_URL}/api/auth/me`, {
         headers: { 'Authorization': `Bearer ${sessionToken}` }
       });
 
@@ -89,7 +90,7 @@ export default function DashboardPage() {
       setProfile(profileData);
 
       // Fetch Wallet Balance
-      const walletRes = await fetch('http://127.0.0.1:8000/api/wallet/balance', {
+      const walletRes = await fetch(`${API_BASE_URL}/api/wallet/balance`, {
         headers: { 'Authorization': `Bearer ${sessionToken}` }
       });
 
@@ -138,7 +139,7 @@ export default function DashboardPage() {
     setSaveSuccess(false);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/settings/keys', {
+      const response = await fetch(`${API_BASE_URL}/api/settings/keys`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -176,7 +177,7 @@ export default function DashboardPage() {
       }
 
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/video/status/${jobId}`, {
+        const res = await fetch(`${API_BASE_URL}/api/video/status/${jobId}`, {
           headers: { 'Authorization': `Bearer ${savedToken}` }
         });
         if (!res.ok) throw new Error("Status query failed.");
@@ -225,7 +226,7 @@ export default function DashboardPage() {
     setPromptInput('');
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/video/generate', {
+      const response = await fetch(`${API_BASE_URL}/api/video/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -270,7 +271,7 @@ export default function DashboardPage() {
           <div>
             <span className="font-bold block">Can&apos;t reach the backend</span>
             <span className="text-amber-400/80">
-              No connection to http://127.0.0.1:8000 — start it with <code>python run_server.py</code> and refresh.
+              No connection to {API_BASE_URL} — start it with <code>python run_server.py</code> and refresh.
             </span>
           </div>
         </div>
