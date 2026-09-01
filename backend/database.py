@@ -15,7 +15,19 @@ class InMemoryCollection:
 
     def find(self, query=None):
         class MockCursor(list):
-            def sort(self, *args, **kwargs):
+            def sort(self, key_or_list, direction=1):
+                # Mimic pymongo's cursor.sort(field_name, direction)
+                if isinstance(key_or_list, str):
+                    reverse = direction == -1
+                    list.sort(self, key=lambda d: d.get(key_or_list, ""), reverse=reverse)
+                return self
+
+            def limit(self, n):
+                del self[n:]
+                return self
+
+            def skip(self, n):
+                del self[:n]
                 return self
 
         if not query:
