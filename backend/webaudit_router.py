@@ -9,7 +9,8 @@ from typing import Optional
 from pymongo.database import Database
 
 from backend.database import get_db
-from backend.deps import get_current_user as get_current_user_helper
+from backend.deps import get_current_user as get_current_user_helper, charge_tokens
+from backend.llm import generate_json, is_llm_configured
 
 router = APIRouter(prefix="/api", tags=["Web Audit & Competitor Scraper"])
 
@@ -72,14 +73,27 @@ def _run_real_pagespeed_insights(target_url: str, strategy: str):
         return None
 
 
+WEBAUDIT_COST = 10
+COMPETITOR_ANALYZE_COST = 8
+
+
 @router.post("/webaudit/lighthouse")
 def run_lighthouse_audit(
     req: LighthouseRequest,
     current_user: dict = Depends(get_current_user_helper),
+    db: Database = Depends(get_db),
 ):
+    """
+    FIX: the frontend labels this "SEO & UX AUDITOR (10 TOKENS)" but the
+    wallet was never actually charged -- balance and transaction history
+    stayed unchanged after running this repeatedly. Now charges for real,
+    same as /api/video/generate does.
+    """
     target_url = req.url.strip()
     if not target_url.startswith("http"):
         target_url = f"https://{target_url}"
+
+    tokens_remaining = charge_tokens(db, current_user, WEBAUDIT_COST, "Website Audit", "webaudit_lighthouse")
 
     real = _run_real_pagespeed_insights(target_url, req.strategy or "mobile")
     if real:
@@ -88,6 +102,7 @@ def run_lighthouse_audit(
             "url": target_url,
             "strategy": req.strategy,
             "data_source": "google_pagespeed_insights",
+            "tokens_remaining": tokens_remaining,
             **real,
         }
 
@@ -113,6 +128,7 @@ def run_lighthouse_audit(
         "url": target_url,
         "strategy": req.strategy,
         "data_source": "heuristic_estimate_pagespeed_unavailable",
+        "tokens_remaining": tokens_remaining,
         "scores": {
             "performance": perf_score,
             "seo": seo_score,
@@ -137,10 +153,17 @@ def run_lighthouse_audit(
 def analyze_competitor_website(
     req: CompetitorRequest,
     current_user: dict = Depends(get_current_user_helper),
+    db: Database = Depends(get_db),
 ):
+    """
+    FIX: labeled "COMPETITOR SWAT ANALYZER (8 TOKENS)" in the UI but never
+    charged. Now charges for real.
+    """
     comp_url = req.competitor_url.strip()
     if not comp_url.startswith("http"):
         comp_url = f"https://{comp_url}"
+
+    tokens_remaining = charge_tokens(db, current_user, COMPETITOR_ANALYZE_COST, "Competitor Intel", "competitor_analyze")
 
     title = "Competitor Domain"
     meta_desc = ""
@@ -184,20 +207,65 @@ def analyze_competitor_website(
     if "tailwind" in html.lower():
         detected_tech.append("Tailwind CSS")
 
+    detected_facts = {
+        "has_meta_description": bool(meta_desc),
+        "social_links_found": len(social_links),
+        "detected_tech": detected_tech,
+    }
+
+    # FIX: this used to always return an empty SWOT with just a note saying
+    # an LLM was needed -- the frontend rendered four empty headed sections
+    # with no indication anything was missing. Now actually calls Groq (via
+    # the same shared llm.py used by campaigns.py) using the real scraped
+    # facts as grounding, and only falls back to the "note" shape if no LLM
+    # is configured or the call fails -- same honest llm/template pattern
+    # as everywhere else, with `generation_source` disclosed either way.
+    llm_swot = generate_json(
+        system_prompt=(
+            "You are a competitive marketing analyst. Given real scraped facts about a "
+            "competitor's website, return a JSON object: "
+            '{"strengths": ["...", ...], "weaknesses": ["...", ...], '
+            '"opportunities": ["...", ...], "threats": ["...", ...]} '
+            "with 2-4 concise, specific bullet points in each list. Base your analysis on "
+            "the facts given -- do not invent facts you weren't given."
+        ),
+        user_prompt=(
+            f"Competitor: {comp_url}\nPage title: {title}\n"
+            f"Meta description: {meta_desc or '(none found)'}\n"
+            f"Detected technology: {', '.join(detected_tech) or '(none detected)'}\n"
+            f"Social links found: {len(social_links)}"
+        ),
+    )
+
+    if llm_swot and any(llm_swot.get(k) for k in ("strengths", "weaknesses", "opportunities", "threats")):
+        swot = {
+            "generation_source": "llm",
+            "strengths": llm_swot.get("strengths", []),
+            "weaknesses": llm_swot.get("weaknesses", []),
+            "opportunities": llm_swot.get("opportunities", []),
+            "threats": llm_swot.get("threats", []),
+            "detected_facts": detected_facts,
+        }
+    else:
+        swot = {
+            "generation_source": "unavailable",
+            "note": "SWOT generation requires an LLM (set GROQ_API_KEY) — showing detected facts only for now.",
+            "strengths": [],
+            "weaknesses": [],
+            "opportunities": [],
+            "threats": [],
+            "detected_facts": detected_facts,
+        }
+
     return {
         "status": "success",
         "competitor_url": comp_url,
+        "tokens_remaining": tokens_remaining,
         "title": title,
         "meta_description": meta_desc or "No meta description found.",
         "technology_stack": detected_tech or ["Undetected from static HTML (may be a client-rendered SPA)."],
         "data_source": "live_scrape",
         "social_presence": social_links or [],
-        "swot": {
-            "note": "SWOT generation requires an LLM (set GROQ_API_KEY) — showing detected facts only for now.",
-            "detected_facts": {
-                "has_meta_description": bool(meta_desc),
-                "social_links_found": len(social_links),
-                "detected_tech": detected_tech,
-            },
-        },
+        "llm_configured": is_llm_configured(),
+        "swot": swot,
     }

@@ -16,7 +16,14 @@ import json
 import httpx
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+# FIX: the old default (llama-3.3-70b-versatile) has been removed from
+# Groq'''s model catalog -- every LLM call was returning 404 model_not_found
+# and silently falling back to templates (confirmed live against the
+# account'''s actual key: GET /openai/v1/models no longer lists it). Verified
+# openai/gpt-oss-120b is live on this account and returns well-formed JSON
+# via response_format=json_object. If GROQ_MODEL is unset, this default is
+# now used instead of the dead one.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 

@@ -8,7 +8,7 @@ from typing import Optional, List
 from pymongo.database import Database
 
 from backend.database import get_db
-from backend.deps import get_current_user as get_current_user_helper
+from backend.deps import get_current_user as get_current_user_helper, charge_tokens
 from backend.serp import check_real_rank, get_trend_interest, is_serp_configured
 from backend.llm import generate_json, is_llm_configured
 
@@ -254,11 +254,24 @@ def generate_seo_fix_plan(
     return {"status": "success", "fix_plan": fix_payload}
 
 
+KEYWORD_CLUSTERING_COST = 8  # matches "AI SEO Assistant ... 8 AI Tokens" in the frontend
+
+
 @router.post("/keyword-clustering")
 def get_keyword_clustering(
     req: KeywordClusterRequest,
     current_user: dict = Depends(get_current_user_helper),
+    db: Database = Depends(get_db),
 ):
+    """
+    FIX: this is what the frontend's "AI SEO Assistant" search box actually
+    needs to call. It used to call POST /api/marketing/process (404) and
+    fabricate a fixed difficulty/volume/CPC result regardless of the query,
+    plus two more dead endpoints (/api/seo/trends, /api/seo/serp-count).
+    Now wired to this real, already-implemented, LLM-backed endpoint -- and
+    now actually charges the 8 tokens the UI advertises (it didn't before).
+    """
+    tokens_remaining = charge_tokens(db, current_user, KEYWORD_CLUSTERING_COST, "AI SEO Assistant", "seo_keyword_clustering")
     seed = req.seed_keyword.strip()
 
     llm_result = generate_json(
@@ -293,4 +306,5 @@ def get_keyword_clustering(
         "clusters": clusters,
         "generation_source": generation_source,
         "llm_configured": is_llm_configured(),
+        "tokens_remaining": tokens_remaining,
     }

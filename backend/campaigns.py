@@ -7,11 +7,20 @@ from typing import Optional, List, Dict, Any
 from pymongo.database import Database
 
 from backend.database import get_db
-from backend.deps import get_current_user as get_current_user_helper
+from backend.deps import get_current_user as get_current_user_helper, charge_tokens
 from backend.llm import generate_json, is_llm_configured
 from backend.email_service import send_email, is_email_configured
 
 router = APIRouter(prefix="/api/campaigns", tags=["Campaigns, Ads & Marketing Automation"])
+
+# FIX: these three generation endpoints are labeled with a token cost in
+# the frontend (Ads Generator "8 TOKENS", Social Studio "2 TOKENS", Email
+# Marketing "2 TOKENS") but never actually charged the wallet. Now they do,
+# via the same shared helper /api/video/generate uses.
+ADS_GENERATE_COST = 8
+SOCIAL_CALENDAR_COST = 2
+EMAIL_SEQUENCE_COST = 2
+
 
 
 class CreateCampaignRequest(BaseModel):
@@ -114,7 +123,9 @@ def list_campaigns(
 def generate_ad_creatives(
     req: AdCreativeRequest,
     current_user: dict = Depends(get_current_user_helper),
+    db: Database = Depends(get_db),
 ):
+    tokens_remaining = charge_tokens(db, current_user, ADS_GENERATE_COST, "Ads Generator", "ads_generate_creatives")
     p_name = req.product_name.strip()
     platform = req.platform.lower()
 
@@ -171,6 +182,7 @@ def generate_ad_creatives(
         "creatives": creatives,
         "generation_source": generation_source,  # "llm" or "template" — honestly disclosed
         "llm_configured": is_llm_configured(),
+        "tokens_remaining": tokens_remaining,
     }
 
 
@@ -179,7 +191,9 @@ def generate_ad_creatives(
 def generate_social_calendar(
     req: SocialCalendarRequest,
     current_user: dict = Depends(get_current_user_helper),
+    db: Database = Depends(get_db),
 ):
+    tokens_remaining = charge_tokens(db, current_user, SOCIAL_CALENDAR_COST, "Social Studio", "social_generate_calendar")
     b_name = req.brand_name.strip()
 
     llm_result = generate_json(
@@ -226,6 +240,7 @@ def generate_social_calendar(
         "calendar": calendar_days,
         "generation_source": generation_source,
         "llm_configured": is_llm_configured(),
+        "tokens_remaining": tokens_remaining,
     }
 
 
@@ -271,7 +286,9 @@ def _build_email_sequence(req: "EmailSequenceRequest"):
 def generate_email_sequence(
     req: EmailSequenceRequest,
     current_user: dict = Depends(get_current_user_helper),
+    db: Database = Depends(get_db),
 ):
+    tokens_remaining = charge_tokens(db, current_user, EMAIL_SEQUENCE_COST, "Email Marketing", "email_generate_sequence")
     sequence, generation_source = _build_email_sequence(req)
     return {
         "status": "success",
@@ -280,6 +297,7 @@ def generate_email_sequence(
         "emails": sequence,
         "generation_source": generation_source,
         "llm_configured": is_llm_configured(),
+        "tokens_remaining": tokens_remaining,
     }
 
 

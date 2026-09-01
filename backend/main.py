@@ -20,6 +20,7 @@ from backend.marketing_doctor import router as marketing_doctor_router
 from backend.seo_engine import router as seo_engine_router
 from backend.campaigns import router as campaigns_router
 from backend.video_router import router as video_router  # FIX: was built (generator.py) but never mounted
+from backend.content_router import router as content_router  # FIX: Content Studio called a nonexistent endpoint (404); this is the real one
 
 app = FastAPI(
     title="Aura Marketing AI Operating System API",
@@ -54,6 +55,7 @@ app.include_router(marketing_doctor_router)
 app.include_router(seo_engine_router)
 app.include_router(campaigns_router)
 app.include_router(video_router)
+app.include_router(content_router)
 
 
 @app.on_event("startup")

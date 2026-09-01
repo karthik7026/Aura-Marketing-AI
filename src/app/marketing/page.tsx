@@ -53,20 +53,24 @@ export default function MarketingPage() {
   const [contentTone, setContentTone] = useState('professional');
   const [contentPrompt, setContentPrompt] = useState('');
   const [contentResult, setContentResult] = useState('');
+  const [contentGenerating, setContentGenerating] = useState(false);
 
   const [seoKeyword, setSeoKeyword] = useState('');
   const [seoResult, setSeoResult] = useState<any>(null);
 
   const [socialPrompt, setSocialPrompt] = useState('');
   const [socialResult, setSocialResult] = useState<any>(null);
+  const [socialGenerating, setSocialGenerating] = useState(false);
 
   const [emailSubject, setEmailSubject] = useState('');
   const [emailPrompt, setEmailPrompt] = useState('');
   const [emailResult, setEmailResult] = useState<any>(null);
+  const [emailGenerating, setEmailGenerating] = useState(false);
 
   const [adsPlatform, setAdsPlatform] = useState('google');
   const [adsPrompt, setAdsPrompt] = useState('');
   const [adsResult, setAdsResult] = useState<any>(null);
+  const [adsGenerating, setAdsGenerating] = useState(false);
 
   const [auditURL, setAuditURL] = useState('');
   const [auditResult, setAuditResult] = useState<any>(null);
@@ -185,6 +189,8 @@ export default function MarketingPage() {
   const [videoLogs, setVideoLogs] = useState<string[]>([]);
   const [videoResult, setVideoResult] = useState<string | null>(null);
   const [videoKeyartUrl, setVideoKeyartUrl] = useState<string | null>(null);
+  const [videoIsFallback, setVideoIsFallback] = useState(false);
+  const [videoGenerationSource, setVideoGenerationSource] = useState<string>('');
   const [videoGallery, setVideoGallery] = useState<Array<{
     id: string;
     prompt: string;
@@ -458,113 +464,187 @@ export default function MarketingPage() {
   };
 
   // 3. Content Studio
-  const handleContentSubmit = (e: React.FormEvent) => {
+  // FIX: this used to call the fake runAICompiler pipeline, which posted to
+  // POST /api/marketing/process -- an endpoint that does not exist (404) --
+  // so clicking "Draft Copywriting Asset" always silently produced nothing.
+  // Now calls the real /api/content/generate endpoint (backend/content_router.py).
+  const handleContentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!contentPrompt.trim()) return;
-    const logs = [
-      "[CONTENT] Initializing brand voice dictionary...",
-      "[SEMANTICS] Drafting paragraph blocks...",
-      "[SEO] Injecting key visibility phrases...",
-      "[STATUS] Content document successfully written."
-    ];
-    runAICompiler(contentType, contentPrompt, logs, () => {
-      setContentResult(
-        `[Draft Generated - Tone: ${contentTone}]\n\n` +
-        `Are you looking for premium results? When it comes to finding the perfect balance, nothing beats dedicated local quality. ` +
-        `Our recent study shows that users who switch to professional services experience a 45% increase in daily satisfaction. ` +
-        `Discover what makes us the preferred choice. Head over to our website to browse our collection!`
-      );
-    });
+    const activeToken = token || localStorage.getItem('auth_token');
+    if (!activeToken) return;
+    setContentGenerating(true);
+    setContentResult('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/content/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
+        body: JSON.stringify({ content_type: contentType, tone: contentTone, brief: contentPrompt })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Content generation failed.');
+      if (typeof data.tokens_remaining === 'number') setTokensBalance(data.tokens_remaining);
+      setContentResult(`${data.title ? data.title + '\n\n' : ''}${data.body || ''}`);
+      if (data.generation_source === 'template') {
+        showToast("Drafted from a template (add GROQ_API_KEY for real AI-written copy).", "info", "Template Draft");
+      } else {
+        showToast("Content drafted successfully!", "success", "Draft Ready");
+      }
+    } catch (err: any) {
+      showToast(err.message || "Content generation failed.", "error", "Generation Error");
+    } finally {
+      setContentGenerating(false);
+    }
   };
 
   // 4. SEO Center
-  const handleSEOSubmit = (e: React.FormEvent) => {
+  // FIX: used to call the fake runAICompiler -> POST /api/marketing/process
+  // (404), fabricating a fixed difficulty/volume/CPC result no matter what
+  // was typed, while a second, also-dead pair of calls
+  // (/api/seo/trends, /api/seo/serp-count -- see the old fetchSeoTrends,
+  // now removed) rendered a visibly broken "0 Google Results" card
+  // alongside it. Now calls the real, already-implemented, LLM-backed
+  // /api/seo/keyword-clustering endpoint.
+  const [seoAssistantLoading, setSeoAssistantLoading] = useState(false);
+  const handleSEOSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!seoKeyword.trim()) return;
-    const logs = [
-      "[SEO] Fetching keyword search volume metrics...",
-      "[SEO] Calculating keyword competition difficulty index...",
-      "[SEO] Harvesting top-ranking competitor meta descriptors..."
-    ];
-    runAICompiler("seo", seoKeyword, logs, () => {
-      setSeoResult({
-        keyword: seoKeyword,
-        volume: "12,400 monthly searches",
-        difficulty: "Medium (42/100)",
-        cpc: "₹45.00 avg",
-        suggestions: [
-          "how to find " + seoKeyword,
-          "best " + seoKeyword + " near me",
-          "affordable " + seoKeyword + " services"
-        ],
-        metaTags: {
-          title: `Best ${seoKeyword} | Premium Local Services`,
-          description: `Looking for top-tier ${seoKeyword}? Explore our affordable options, read customer reviews, and contact us today for details!`
-        }
+    const activeToken = token || localStorage.getItem('auth_token');
+    if (!activeToken) return;
+    setSeoAssistantLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/seo/keyword-clustering`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
+        body: JSON.stringify({ seed_keyword: seoKeyword })
       });
-    });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'SEO analysis failed.');
+      if (typeof data.tokens_remaining === 'number') setTokensBalance(data.tokens_remaining);
+      setSeoResult({ keyword: seoKeyword, clusters: data.clusters || [], generationSource: data.generation_source });
+      if (data.generation_source === 'template') {
+        showToast("Showing template clusters (add GROQ_API_KEY for real AI analysis).", "info", "Template Result");
+      }
+    } catch (err: any) {
+      showToast(err.message || "SEO analysis failed.", "error", "Analysis Error");
+    } finally {
+      setSeoAssistantLoading(false);
+    }
   };
 
   // 5. Social Media Studio
-  const handleSocialSubmit = (e: React.FormEvent) => {
+  // FIX: used to call the fake runAICompiler -> POST /api/marketing/process
+  // (404) -- "Generate Post Copy" silently produced nothing. Now calls the
+  // real /api/content/generate endpoint with content_type=social_post.
+  const handleSocialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!socialPrompt.trim()) return;
-    const logs = [
-      "[SOCIAL] Mapping best platform image crop overlays...",
-      "[SOCIAL] Generating hashtags list...",
-      "[SOCIAL] Computing optimal target audience time zones..."
-    ];
-    runAICompiler("social", socialPrompt, logs, () => {
-      setSocialResult({
-        post: `✨ ${socialPrompt} ✨\n\nMade with love, crafted to perfection. Don't wait—get yours today! 🚀`,
-        hashtags: ["#excellence", "#brandlove", "#trendingnow", "#musthave"],
-        bestTime: "Thursday at 5:00 PM",
-        platform: "Instagram / Facebook"
+    const activeToken = token || localStorage.getItem('auth_token');
+    if (!activeToken) return;
+    setSocialGenerating(true);
+    setSocialResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/content/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
+        body: JSON.stringify({ content_type: 'social_post', tone: 'friendly', brief: socialPrompt })
       });
-    });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Social post generation failed.');
+      if (typeof data.tokens_remaining === 'number') setTokensBalance(data.tokens_remaining);
+      setSocialResult({
+        post: data.post || '',
+        platform: data.platform || 'Instagram / Facebook',
+        bestTime: data.best_time || 'Not estimated'
+      });
+      showToast(
+        data.generation_source === 'template' ? "Drafted from a template (add GROQ_API_KEY for AI-written posts)." : "Post copy generated!",
+        data.generation_source === 'template' ? "info" : "success"
+      );
+    } catch (err: any) {
+      showToast(err.message || "Social post generation failed.", "error", "Generation Error");
+    } finally {
+      setSocialGenerating(false);
+    }
   };
 
   // 6. Email Generator
-  const handleEmailSubmit = (e: React.FormEvent) => {
+  // FIX: used to call the fake runAICompiler -> POST /api/marketing/process
+  // (404) -- "Draft Email Newsletter" silently produced nothing. Now calls
+  // the real /api/content/generate endpoint with content_type=email_newsletter.
+  const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailPrompt.trim()) return;
-    const logs = [
-      "[EMAIL] Generating high-open-rate subject lines...",
-      "[EMAIL] Styling email body layout framework...",
-      "[EMAIL] Writing call-to-action blocks..."
-    ];
-    runAICompiler("blog", emailPrompt, logs, () => {
-      setEmailResult({
-        subject: emailSubject || "Special launch offer inside! 🎁",
-        body: `Dear customer,\n\nWe are excited to share a brand new update with you. ${emailPrompt}\n\nUse coupon code LAUNCH20 to get 20% off your next purchase.\n\nBest regards,\nMarketing Team`,
-        cta: "Claim your 20% Discount"
+    const activeToken = token || localStorage.getItem('auth_token');
+    if (!activeToken) return;
+    setEmailGenerating(true);
+    setEmailResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/content/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
+        body: JSON.stringify({ content_type: 'email_newsletter', tone: 'professional', brief: emailPrompt, subject: emailSubject })
       });
-    });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Email draft generation failed.');
+      if (typeof data.tokens_remaining === 'number') setTokensBalance(data.tokens_remaining);
+      setEmailResult({
+        subject: data.subject || emailSubject || 'Update from us',
+        body: data.body || '',
+        cta: data.cta || 'Learn More'
+      });
+      showToast(
+        data.generation_source === 'template' ? "Drafted from a template (add GROQ_API_KEY for AI-written emails)." : "Email newsletter drafted!",
+        data.generation_source === 'template' ? "info" : "success"
+      );
+    } catch (err: any) {
+      showToast(err.message || "Email draft generation failed.", "error", "Generation Error");
+    } finally {
+      setEmailGenerating(false);
+    }
   };
 
   // 7. Ads Generator
-  const handleAdsSubmit = (e: React.FormEvent) => {
+  // FIX: used to call the fake runAICompiler -> POST /api/marketing/process
+  // (404) -- "Optimize Ad Copy Sets" silently produced nothing. Now calls
+  // the real, already-working /api/campaigns/ads/generate-creatives
+  // endpoint (same one the Campaigns tab uses) and maps its 3 creatives
+  // into the shape this page already renders.
+  const handleAdsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adsPrompt.trim()) return;
-    const logs = [
-      "[ADS] Querying platform specifications...",
-      "[ADS] Writing conversion copy headlines...",
-      "[ADS] Computing budget suggestions..."
-    ];
-    runAICompiler("seo", adsPrompt, logs, () => {
-      setAdsResult({
-        headlines: [
-          `Premium ${adsPrompt}`,
-          "Get Started Today",
-          "Official Store Offer"
-        ],
-        descriptions: [
-          "Top quality services at prices you will love. Check our details online.",
-          "Limited time offers now active. Fast shipping and local setup support."
-        ],
-        budget: "₹500 / day recommended"
+    const activeToken = token || localStorage.getItem('auth_token');
+    if (!activeToken) return;
+    setAdsGenerating(true);
+    setAdsResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/campaigns/ads/generate-creatives`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
+        body: JSON.stringify({
+          product_name: adsPrompt,
+          target_audience: profile?.company_name ? `${profile.company_name} customers` : 'general audience',
+          platform: adsPlatform === 'google' ? 'google_ads' : adsPlatform === 'facebook' ? 'meta_ads' : 'linkedin_ads'
+        })
       });
-    });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Ad creative generation failed.');
+      if (typeof data.tokens_remaining === 'number') setTokensBalance(data.tokens_remaining);
+      const creatives = data.creatives || [];
+      setAdsResult({
+        headlines: creatives.map((cr: any) => cr.headline).filter(Boolean),
+        descriptions: creatives.map((cr: any) => cr.primary_text).filter(Boolean),
+        budget: creatives[0]?.recommended_budget || 'Not estimated'
+      });
+      showToast(
+        data.generation_source === 'template' ? "Drafted from a template (add GROQ_API_KEY for AI-written ad copy)." : "Ad creatives generated!",
+        data.generation_source === 'template' ? "info" : "success"
+      );
+    } catch (err: any) {
+      showToast(err.message || "Ad creative generation failed.", "error", "Generation Error");
+    } finally {
+      setAdsGenerating(false);
+    }
   };
 
   // 8. Website Audit
@@ -927,25 +1007,10 @@ export default function MarketingPage() {
     } catch (err) { console.error(err); }
   };
 
-  const fetchSeoTrends = async (keyword: string) => {
-    if (!token) return;
-    setSeoLoading(true);
-    try {
-      const [trendsRes, serpRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/seo/trends?keyword=${encodeURIComponent(keyword)}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch(`${API_BASE_URL}/api/seo/serp-count?q=${encodeURIComponent(keyword)}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-      ]);
-      const trendsData = await trendsRes.json();
-      const serpData = await serpRes.json();
-      setSeoTrends(trendsData);
-      setSeoSerpCount(serpData);
-    } catch (err) { console.error(err); }
-    finally { setSeoLoading(false); }
-  };
+  // FIX: this called /api/seo/trends and /api/seo/serp-count, neither of
+  // which exists on the backend (both confirmed 404) -- it always rendered
+  // a visibly broken "0 Google Results" card. Removed; handleSEOSubmit now
+  // calls the one real endpoint that actually backs this feature.
 
   const fetchLighthouseAudit = async (url: string, strategy: string = 'mobile') => {
     if (!token) return;
@@ -1132,7 +1197,7 @@ export default function MarketingPage() {
   };
 
   useEffect(() => {
-    if (activeTab === 'analytics') fetchRealAnalytics();
+    if (activeTab === 'analytics' || activeTab === 'seo') fetchRealAnalytics();
     if (activeTab === 'notifications') fetchRealNotifications();
   }, [activeTab]);
 
@@ -1717,60 +1782,100 @@ export default function MarketingPage() {
       }
 
       const data = await res.json();
-      const realVideoUrl = data.video_url || "https://assets.mixkit.co/videos/preview/mixkit-flying-over-a-futuristic-neon-city-at-night-42239-large.mp4";
+      if (!res.ok) throw new Error(data.detail || "Video generation failed.");
 
-      setTimeout(() => {
-        setVideoLogs(prev => [
-          ...prev,
-          "[MODEL] Applying temporal motion vectors & CLIP text embeddings...",
-          "[CAMERA] Applying 30-second camera trajectory..."
-        ]);
-      }, 1000);
-
-      setTimeout(() => {
-        setVideoLogs(prev => [
-          ...prev,
-          "[ENCODER] Compiling 30-second H.264 HD MP4 video container...",
-          "[SYSTEM] 30+ Second AI Video rendered successfully!"
-        ]);
-        setVideoResult(realVideoUrl);
-        setVideoGenerating(false);
-
-        const newJobId = data.job_id || `JOB_AI_${Math.random().toString(36).substring(7).toUpperCase()}`;
-        setVideoGallery(prev => [
-          {
-            id: newJobId,
-            prompt: videoPrompt,
-            style: videoStyle,
-            video_url: realVideoUrl,
-            keyart_url: targetKeyartUrl,
-            created_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          },
-          ...prev
-        ]);
-
-        showToast("30+ Second AI Video generated successfully!", "success", "Video Ready");
-      }, 2500);
-
-    } catch (err: any) {
-      // Local fallback mapping to real HD MP4 feeds based on keywords
-      const promptLower = videoPrompt.toLowerCase();
-      let fallbackUrl = "https://assets.mixkit.co/videos/preview/mixkit-flying-over-a-futuristic-neon-city-at-night-42239-large.mp4";
-      if (promptLower.includes("space") || promptLower.includes("galaxy") || promptLower.includes("star")) {
-        fallbackUrl = "https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-4054-large.mp4";
-      } else if (promptLower.includes("nature") || promptLower.includes("forest") || promptLower.includes("water")) {
-        fallbackUrl = "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-sunlight-529-large.mp4";
-      } else if (promptLower.includes("tech") || promptLower.includes("circuit") || promptLower.includes("ai")) {
-        fallbackUrl = "https://assets.mixkit.co/videos/preview/mixkit-circuit-board-with-glowing-lights-41551-large.mp4";
-      } else if (promptLower.includes("ocean") || promptLower.includes("sea") || promptLower.includes("wave")) {
-        fallbackUrl = "https://assets.mixkit.co/videos/preview/mixkit-waves-in-the-water-1164-large.mp4";
+      // FIX: tokens are deducted server-side the moment the job is created,
+      // but this used to never update the on-screen wallet -- so "Wallet: X
+      // Tokens" stayed at whatever it was on page load no matter how many
+      // videos you generated. Update it immediately from the real balance
+      // the backend just returned.
+      if (typeof data.tokens_remaining === 'number') {
+        setTokensBalance(data.tokens_remaining);
       }
 
-      setTimeout(() => {
-        setVideoResult(fallbackUrl);
-        setVideoGenerating(false);
-        showToast("30+ Second AI Video generated successfully!", "success", "Video Ready");
-      }, 2000);
+      setVideoLogs(prev => [
+        ...prev,
+        "[MODEL] Job created — polling for the real result...",
+      ]);
+
+      // FIX: this used to immediately fall back to a hardcoded generic
+      // stock clip (data.video_url is null right after job creation --
+      // generation is async) and label it "AI Video Stream Compiled"
+      // regardless of what actually happened. Now it actually polls
+      // /api/video/status/{job_id} for the real outcome, and honestly
+      // labels the result as a fallback stock clip when
+      // used_fallback/used_library say so, instead of always claiming a
+      // bespoke AI render.
+      const jobId = data.job_id;
+      let finalVideoUrl = data.video_url as string | null;
+      let usedFallback = false;
+      let statusLogs: string[] = [];
+
+      if (jobId) {
+        const maxAttempts = 15; // ~30s at 2s intervals
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const statusRes = await fetch(`${API_BASE_URL}/api/video/status/${jobId}`, {
+              headers: { 'Authorization': `Bearer ${activeToken}` }
+            });
+            const statusData = await statusRes.json();
+            if (statusData.logs) statusLogs = statusData.logs;
+            if (statusData.status === 'completed') {
+              finalVideoUrl = statusData.video_url || finalVideoUrl;
+              usedFallback = !!statusData.used_fallback;
+              break;
+            }
+          } catch {
+            break; // stop polling on network error, use whatever we have
+          }
+        }
+      } else {
+        // No job id at all -- treat as a fallback result.
+        usedFallback = true;
+      }
+
+      if (!finalVideoUrl) {
+        finalVideoUrl = "https://assets.mixkit.co/videos/preview/mixkit-flying-over-a-futuristic-neon-city-at-night-42239-large.mp4";
+        usedFallback = true;
+      }
+
+      setVideoLogs(prev => [
+        ...prev,
+        ...statusLogs,
+        usedFallback
+          ? "[HONEST DISCLOSURE] No live GPU render was available for this job — the clip below is a stock/library fallback, not generated from your prompt."
+          : "[SYSTEM] Genuine AI video render completed."
+      ]);
+      setVideoResult(finalVideoUrl);
+      setVideoIsFallback(usedFallback);
+      setVideoGenerationSource(data.generation_source || (usedFallback ? 'sandbox' : ''));
+      setVideoGenerating(false);
+
+      const newJobId = jobId || `JOB_AI_${Math.random().toString(36).substring(7).toUpperCase()}`;
+      setVideoGallery(prev => [
+        {
+          id: newJobId,
+          prompt: videoPrompt,
+          style: videoStyle,
+          video_url: finalVideoUrl as string,
+          keyart_url: targetKeyartUrl,
+          created_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        },
+        ...prev
+      ]);
+
+      showToast(
+        usedFallback
+          ? "Video ready — no live GPU was available, so this is a stock fallback clip, not a bespoke AI render."
+          : "AI video generated successfully!",
+        usedFallback ? "warning" : "success",
+        usedFallback ? "Fallback Clip Used" : "Video Ready"
+      );
+
+    } catch (err: any) {
+      showToast(err.message || "Video generation failed. Please try again.", "error", "Generation Error");
+      setVideoGenerating(false);
     }
   };
 
@@ -2044,12 +2149,19 @@ export default function MarketingPage() {
           <div className="flex items-center gap-3">
             <span className="text-xs font-bold text-slate-300">Good evening 👋</span>
             <span className="text-slate-600">·</span>
-            <span className="text-xs font-bold text-white font-mono">Acme AI</span>
+            {/* FIX: this used to hardcode "Acme AI / acme.ai" and a fixed
+                "Marketing Health 78/100" badge for every account, regardless
+                of who was actually logged in or whether any scan had ever
+                been run. Now uses the real logged-in profile, and only shows
+                a health score once a real Marketing Doctor diagnosis exists. */}
+            <span className="text-xs font-bold text-white font-mono">{profile?.company_name || 'Your Workspace'}</span>
             <span className="text-slate-600">·</span>
-            <span className="text-xs text-slate-400 font-mono">acme.ai</span>
-            <span className="text-[10px] font-mono font-bold bg-emerald-950/80 border border-emerald-500/30 text-emerald-400 px-2.5 py-0.5 rounded-full ml-1">
-              Marketing Health 78/100
-            </span>
+            <span className="text-xs text-slate-400 font-mono">{profile?.email || ''}</span>
+            {marketingDoctorDiagnosis?.scores?.overall_health != null && (
+              <span className="text-[10px] font-mono font-bold bg-emerald-950/80 border border-emerald-500/30 text-emerald-400 px-2.5 py-0.5 rounded-full ml-1">
+                Marketing Health {marketingDoctorDiagnosis.scores.overall_health}/100
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -2566,32 +2678,57 @@ export default function MarketingPage() {
                   <button onClick={() => fetchTop10Opportunities()} className="text-xs font-bold text-emerald-400 hover:underline">Refresh SERP Data</button>
                 </div>
 
+                {/* FIX: this used to be 3 permanently-hardcoded rows with
+                    https://example.com/... target URLs, shown before any
+                    scan ever ran and identical for every account. It now
+                    renders the real top10Opportunities state from
+                    POST /api/seo/top10-opportunities, with a real loading
+                    state, an honest "run a scan" empty state, and a
+                    per-item badge disclosing whether the position is a real
+                    SerpApi/Google check (google_custom_search_api) or the
+                    starter sample-keyword list used when no rank-checking
+                    API key is configured (simulated_sample_data). */}
                 <div className="space-y-3">
-                  {[
-                    { keyword: "best AI marketing platform", pos: 14, vol: "12,100", diff: 58, gain: "+3,388 visitors/mo", url: "https://example.com/solutions" },
-                    { keyword: "AI video generator for business", pos: 11, vol: "8,900", diff: 49, gain: "+2,492 visitors/mo", url: "https://example.com/video" },
-                    { keyword: "automated SEO health audit", pos: 17, vol: "3,200", diff: 36, gain: "+896 visitors/mo", url: "https://example.com/seo-audit" }
-                  ].map((opp, i) => (
-                    <div key={i} className="bg-slate-950/60 border border-slate-850 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black text-white">{opp.keyword}</span>
-                          <span className="text-[10px] text-amber-400 font-bold bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800">Rank #{opp.pos}</span>
-                        </div>
-                        <span className="text-[10px] text-slate-500 block">Vol: {opp.vol} | Difficulty: {opp.diff}/100 | Target: {opp.url}</span>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-bold text-emerald-400">{opp.gain}</span>
-                        <button
-                          onClick={() => runWhyNotTop10AI(opp.keyword, opp.url)}
-                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition"
-                        >
-                          Why Am I Not Top 10? AI →
-                        </button>
-                      </div>
+                  {top10Loading ? (
+                    <div className="flex justify-center p-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-emerald-500"></div>
                     </div>
-                  ))}
+                  ) : top10Opportunities.length === 0 ? (
+                    <div className="text-center py-6 space-y-3">
+                      <p className="text-[11px] text-slate-500 font-sans">No scan has been run yet -- click below to check real keyword positions for your site.</p>
+                      <button
+                        onClick={() => fetchTop10Opportunities(doctorUrlInput)}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition"
+                      >
+                        Run Opportunities Scan
+                      </button>
+                    </div>
+                  ) : (
+                    top10Opportunities.map((opp: any, i: number) => (
+                      <div key={opp.id || i} className="bg-slate-950/60 border border-slate-850 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-white">{opp.keyword}</span>
+                            <span className="text-[10px] text-amber-400 font-bold bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800">Rank #{opp.current_position}</span>
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${opp.data_source === 'google_custom_search_api' ? 'text-emerald-400 bg-emerald-950/80 border-emerald-800' : 'text-slate-400 bg-slate-900 border-slate-700'}`}>
+                              {opp.data_source === 'google_custom_search_api' ? 'Real Rank Check' : 'Sample Keyword (no rank-check API configured)'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-500 block">Vol: {opp.search_volume?.toLocaleString?.() ?? opp.search_volume} | Difficulty: {opp.keyword_difficulty}/100 | Target: {opp.target_url}</span>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-bold text-emerald-400">+{opp.potential_traffic_gain?.toLocaleString?.() ?? opp.potential_traffic_gain} visitors/mo (est.)</span>
+                          <button
+                            onClick={() => runWhyNotTop10AI(opp.keyword, opp.target_url)}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition"
+                          >
+                            Why Am I Not Top 10? AI →
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -2816,9 +2953,10 @@ export default function MarketingPage() {
 
                   <button
                     type="submit"
-                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-3 rounded-xl transition shadow shadow-emerald-600/10 flex items-center justify-center gap-1.5"
+                    disabled={contentGenerating}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs py-3 rounded-xl transition shadow shadow-emerald-600/10 flex items-center justify-center gap-1.5"
                   >
-                    Draft Copywriting Asset
+                    {contentGenerating ? 'Drafting...' : 'Draft Copywriting Asset'}
                   </button>
                 </form>
               </div>
@@ -2973,23 +3111,36 @@ export default function MarketingPage() {
                 </div>
               </div>
 
-              {/* Dashboard Summary Cards */}
+              {/* Dashboard Summary Cards
+                  FIX: these four cards used to be hardcoded (120 / 45 / 87% / 24)
+                  on every account, always, even a brand-new one with zero
+                  activity. They now come from GET /api/analytics/dashboard
+                  (fetched via fetchRealAnalytics) and from a real Marketing
+                  Doctor diagnosis when one exists. There is no backend concept
+                  of a "keywords researched" or "SEO reports" counter or an
+                  "average SEO score" -- rather than invent one, this shows the
+                  real token balance/spend and an honest "not scanned yet"
+                  state instead of a fabricated score. */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-[#1F2937]/35 border border-[#374151]/50 rounded-2xl p-5 hover:scale-[1.02] hover:border-emerald-500/30 transition-all shadow-md">
-                  <span className="text-[9.5px] font-mono text-slate-500 uppercase font-bold tracking-wider">Keywords Researched</span>
-                  <span className="text-2xl font-black text-white font-mono mt-1 block">120</span>
+                  <span className="text-[9.5px] font-mono text-slate-500 uppercase font-bold tracking-wider">Tokens Balance</span>
+                  <span className="text-2xl font-black text-white font-mono mt-1 block">{realAnalytics?.tokens_balance ?? tokensBalance}</span>
                 </div>
                 <div className="bg-[#1F2937]/35 border border-[#374151]/50 rounded-2xl p-5 hover:scale-[1.02] hover:border-emerald-500/30 transition-all shadow-md">
-                  <span className="text-[9.5px] font-mono text-slate-500 uppercase font-bold tracking-wider">SEO Reports</span>
-                  <span className="text-2xl font-black text-white font-mono mt-1 block">45</span>
+                  <span className="text-[9.5px] font-mono text-slate-500 uppercase font-bold tracking-wider">Total Tokens Spent</span>
+                  <span className="text-2xl font-black text-white font-mono mt-1 block">{realAnalytics?.total_tokens_spent ?? 0}</span>
                 </div>
                 <div className="bg-[#1F2937]/35 border border-[#374151]/50 rounded-2xl p-5 hover:scale-[1.02] hover:border-emerald-500/30 transition-all shadow-md">
-                  <span className="text-[9.5px] font-mono text-slate-500 uppercase font-bold tracking-wider">Average SEO Score</span>
-                  <span className="text-2xl font-black text-emerald-450 font-mono mt-1 block">87%</span>
+                  <span className="text-[9.5px] font-mono text-slate-500 uppercase font-bold tracking-wider">Site Health Score</span>
+                  {marketingDoctorDiagnosis?.scores?.overall_health != null ? (
+                    <span className="text-2xl font-black text-emerald-450 font-mono mt-1 block">{marketingDoctorDiagnosis.scores.overall_health}%</span>
+                  ) : (
+                    <span className="text-sm font-bold text-slate-500 font-mono mt-1.5 block">Not scanned yet</span>
+                  )}
                 </div>
                 <div className="bg-[#1F2937]/35 border border-[#374151]/50 rounded-2xl p-5 hover:scale-[1.02] hover:border-emerald-500/30 transition-all shadow-md">
                   <span className="text-[9.5px] font-mono text-slate-500 uppercase font-bold tracking-wider">Tokens Used Today</span>
-                  <span className="text-2xl font-black text-white font-mono mt-1 block">24</span>
+                  <span className="text-2xl font-black text-white font-mono mt-1 block">{realAnalytics?.daily_token_usage?.length ? realAnalytics.daily_token_usage[realAnalytics.daily_token_usage.length - 1].tokens : 0}</span>
                 </div>
               </div>
 
@@ -3026,14 +3177,13 @@ export default function MarketingPage() {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
                             handleSEOSubmit(e as any);
-                            fetchSeoTrends(seoKeyword);
                           }
                         }}
                       />
                       {seoSuggestions && seoSuggestions.length > 0 && (
                         <div className="absolute z-10 w-full mt-2 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-h-60 overflow-y-auto">
                           {seoSuggestions.map((s, i) => (
-                            <div key={i} className="p-3 hover:bg-slate-800 cursor-pointer text-sm text-slate-300" onClick={() => { setSeoKeyword(s); setSeoSuggestions([]); fetchSeoTrends(s); }}>
+                            <div key={i} className="p-3 hover:bg-slate-800 cursor-pointer text-sm text-slate-300" onClick={() => { setSeoKeyword(s); setSeoSuggestions([]); }}>
                               {s}
                             </div>
                           ))}
@@ -3044,11 +3194,11 @@ export default function MarketingPage() {
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                       <div className="flex gap-2.5">
                         <button
-                          onClick={(e) => { handleSEOSubmit(e as any); fetchSeoTrends(seoKeyword); }}
-                          disabled={!seoKeyword.trim()}
+                          onClick={(e) => { handleSEOSubmit(e as any); }}
+                          disabled={!seoKeyword.trim() || seoAssistantLoading}
                           className="px-5 py-2.5 bg-emerald-600 hover:bg-[#059669] disabled:opacity-40 disabled:hover:bg-emerald-600 text-white font-bold rounded-xl text-xs transition hover:scale-[1.02] flex items-center gap-1.5 shadow"
                         >
-                          Analyze with AI
+                          {seoAssistantLoading ? 'Analyzing...' : 'Analyze with AI'}
                         </button>
                         <button 
                           onClick={() => { setSeoKeyword("Audit website URL: "); }}
@@ -3102,60 +3252,36 @@ export default function MarketingPage() {
                       </button>
                     </div>
                   ) : (
-                    /* RESULTS WINDOW */
+                    /* RESULTS WINDOW -- FIX: previously rendered a fixed fake
+                       difficulty/volume/CPC/meta-tag result for any query.
+                       Now renders the real keyword clusters returned by
+                       /api/seo/keyword-clustering. */
                     <div className="bg-[#1F2937]/20 border border-emerald-500/15 rounded-2xl p-6 shadow-xl space-y-6 animate-fade-in">
-                      
-                      {/* Metric cards block */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-5 border-b border-slate-900">
-                        <div className="bg-slate-950/30 p-3.5 rounded-xl border border-slate-900">
-                          <span className="text-[9px] text-slate-500 uppercase font-mono font-bold block">Keyword Difficulty</span>
-                          <span className="text-base font-black text-emerald-450 font-mono mt-1 block">{seoResult.difficulty}</span>
-                        </div>
-                        <div className="bg-slate-950/30 p-3.5 rounded-xl border border-slate-900">
-                          <span className="text-[9px] text-slate-500 uppercase font-mono font-bold block">Search Volume</span>
-                          <span className="text-base font-black text-white font-mono mt-1 block">{seoResult.volume}</span>
-                        </div>
-                        <div className="bg-slate-950/30 p-3.5 rounded-xl border border-slate-900">
-                          <span className="text-[9px] text-slate-500 uppercase font-mono font-bold block">CPC Average</span>
-                          <span className="text-base font-black text-white font-mono mt-1 block">{seoResult.cpc}</span>
-                        </div>
-                        <div className="bg-slate-950/30 p-3.5 rounded-xl border border-slate-900">
-                          <span className="text-[9px] text-slate-500 uppercase font-mono font-bold block">Intent Classification</span>
-                          <span className="text-base font-black text-emerald-450 font-mono mt-1 block uppercase text-xs">Transactional</span>
-                        </div>
-                      </div>
 
-                      {/* SERP details */}
-                      <div className="space-y-4 text-xs text-slate-350">
-                        
-                        <div>
-                          <strong className="block text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-2">Related Keywords & Search Intent:</strong>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                            <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-900 space-y-2">
-                              <span className="text-[9.5px] font-mono text-emerald-400 uppercase font-bold block">Search Queries:</span>
-                              <ul className="space-y-1.5 text-slate-300">
-                                {seoResult.suggestions.map((item: string, i: number) => (
-                                  <li key={i}>• {item}</li>
+                      {seoResult.generationSource === 'template' && (
+                        <div className="text-[10px] text-amber-300 bg-amber-950/30 border border-amber-500/20 rounded-xl px-3 py-2">
+                          Showing template clusters — add GROQ_API_KEY on the backend for real AI-generated analysis.
+                        </div>
+                      )}
+
+                      <div>
+                        <strong className="block text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-3">
+                          Keyword Clusters for "{seoResult.keyword}":
+                        </strong>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                          {(seoResult.clusters || []).map((cluster: any, i: number) => (
+                            <div key={i} className="bg-slate-950/40 p-4 rounded-xl border border-slate-900 space-y-2">
+                              <span className="text-[10px] font-mono text-emerald-400 uppercase font-bold block">{cluster.cluster_name}</span>
+                              <div className="text-slate-200 font-semibold text-xs">{cluster.pillar_keyword}</div>
+                              <ul className="space-y-1 text-slate-300 text-[11px]">
+                                {(cluster.supporting_keywords || []).map((kw: string, j: number) => (
+                                  <li key={j}>• {kw}</li>
                                 ))}
                               </ul>
+                              <span className="text-[9px] text-slate-500 font-mono uppercase block pt-1">{cluster.recommended_format}</span>
                             </div>
-                            <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-900 space-y-2">
-                              <span className="text-[9.5px] font-mono text-emerald-400 uppercase font-bold block">Meta Tag Recommendation:</span>
-                              <div className="text-slate-200 font-semibold">{seoResult.metaTags.title}</div>
-                              <div className="text-slate-400 mt-1.5 leading-relaxed">{seoResult.metaTags.description}</div>
-                            </div>
-                          </div>
+                          ))}
                         </div>
-
-                        <div className="pt-2">
-                          <strong className="block text-[10px] text-slate-500 uppercase tracking-wider font-mono mb-2">Competitors SEO Gaps:</strong>
-                          <div className="bg-[#0B0F17]/40 p-4 rounded-xl border border-slate-900 space-y-2">
-                            <span className="text-slate-300">
-                              Top ranking competitors for <strong className="text-white">"{seoResult.keyword}"</strong> lack FAQ Schema metadata markups and target only generic keywords. Building backlinks around local variants will yield the highest visibility increase.
-                            </span>
-                          </div>
-                        </div>
-
                       </div>
 
                       {/* Export buttons row */}
@@ -3285,45 +3411,53 @@ export default function MarketingPage() {
                     </div>
                   </div>
 
-                  {/* Recent Searches */}
+                  {/* Recent Searches
+                      FIX: this used to be four permanently-fake entries dated
+                      in July regardless of the account. It now reads the same
+                      real transaction history the Marketing Analytics tab
+                      uses (GET /api/analytics/dashboard -> recent_activity),
+                      so it is empty on a fresh account and fills in as real
+                      paid actions are run. */}
                   <div className="bg-[#1F2937]/35 border border-[#374151]/50 rounded-2xl p-5 space-y-4 shadow-md">
-                    <h4 className="text-[10px] font-mono text-slate-500 uppercase font-bold tracking-wider">Recent Searches</h4>
+                    <h4 className="text-[10px] font-mono text-slate-500 uppercase font-bold tracking-wider">Recent Activity</h4>
                     <div className="space-y-2.5">
-                      {[
-                        { name: "Restaurant SEO", date: "July 28", tokens: 8 },
-                        { name: "Bakery Keywords", date: "July 27", tokens: 8 },
-                        { name: "AI Marketing", date: "July 25", tokens: 8 },
-                        { name: "Digital Marketing", date: "July 22", tokens: 8 }
-                      ].map((item, i) => (
-                        <div key={i} className="flex justify-between items-center border-b border-slate-900 pb-2 text-xs">
-                          <div>
-                            <span className="font-bold text-slate-300 block">{item.name}</span>
-                            <span className="text-[9px] text-slate-500 font-mono mt-0.5 block">{item.date} • {item.tokens} Tokens used</span>
+                      {(!realAnalytics?.recent_activity || realAnalytics.recent_activity.length === 0) ? (
+                        <p className="text-[10px] text-slate-500 font-mono">No activity yet -- run a search, audit, or report to see it here.</p>
+                      ) : (
+                        [...realAnalytics.recent_activity].reverse().map((item: any, i: number) => (
+                          <div key={i} className="flex justify-between items-center border-b border-slate-900 pb-2 text-xs">
+                            <div>
+                              <span className="font-bold text-slate-300 block">{item.tier_name || 'Action'}</span>
+                              <span className="text-[9px] text-slate-500 font-mono mt-0.5 block">
+                                {item.created_at ? new Date(item.created_at).toLocaleDateString() : ''} {Math.abs(item.amount || 0)} Tokens used
+                              </span>
+                            </div>
                           </div>
-                          <button
-                            onClick={() => { setSeoKeyword(`Re-run search: ${item.name}`); }}
-                            className="text-[10px] font-bold text-emerald-450 hover:underline"
-                          >
-                            Open Again
-                          </button>
-                        </div>
-                      ))}
+                        ))
+                      )}
                     </div>
                   </div>
 
-                  {/* AI Activity Timeline */}
+                  {/* AI Activity Timeline
+                      FIX: this used to be four permanently-fake status lines
+                      that never changed. Now derived from the same real
+                      recent_activity feed as the section above. */}
                   <div className="bg-[#1F2937]/35 border border-[#374151]/50 rounded-2xl p-5 space-y-4 shadow-md">
                     <h4 className="text-[10px] font-mono text-slate-500 uppercase font-bold tracking-wider">AI Activity Timeline</h4>
                     <div className="space-y-3 font-mono text-[10px] text-slate-450">
-                      {[
-                        "Website Audit Completed", "Keyword Report Generated",
-                        "Blog Generated", "Competitor Analysis Completed"
-                      ].map((item, i) => (
-                        <div key={i} className="flex gap-2 items-center">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                          <span>{item}</span>
+                      {(!realAnalytics?.recent_activity || realAnalytics.recent_activity.length === 0) ? (
+                        <div className="flex gap-2 items-center">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
+                          <span>No AI activity recorded yet</span>
                         </div>
-                      ))}
+                      ) : (
+                        [...realAnalytics.recent_activity].reverse().map((item: any, i: number) => (
+                          <div key={i} className="flex gap-2 items-center">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            <span>{item.tier_name || 'Action'} completed</span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
 
@@ -3354,9 +3488,10 @@ export default function MarketingPage() {
                   
                   <button
                     type="submit"
-                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-3 rounded-xl transition shadow shadow-emerald-600/10 flex items-center justify-center gap-1.5"
+                    disabled={socialGenerating}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs py-3 rounded-xl transition shadow shadow-emerald-600/10 flex items-center justify-center gap-1.5"
                   >
-                    Generate Post Copy
+                    {socialGenerating ? 'Generating...' : 'Generate Post Copy'}
                   </button>
                 </form>
               </div>
@@ -3412,9 +3547,10 @@ export default function MarketingPage() {
 
                   <button
                     type="submit"
-                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-3 rounded-xl transition shadow shadow-emerald-600/10 flex items-center justify-center gap-1.5"
+                    disabled={emailGenerating}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs py-3 rounded-xl transition shadow shadow-emerald-600/10 flex items-center justify-center gap-1.5"
                   >
-                    Draft Email Newsletter
+                    {emailGenerating ? 'Drafting...' : 'Draft Email Newsletter'}
                   </button>
                 </form>
               </div>
@@ -3472,9 +3608,10 @@ export default function MarketingPage() {
 
                   <button
                     type="submit"
-                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-3 rounded-xl transition shadow shadow-emerald-600/10 flex items-center justify-center gap-1.5"
+                    disabled={adsGenerating}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs py-3 rounded-xl transition shadow shadow-emerald-600/10 flex items-center justify-center gap-1.5"
                   >
-                    Optimize Ad Copy Sets
+                    {adsGenerating ? 'Optimizing...' : 'Optimize Ad Copy Sets'}
                   </button>
                 </form>
               </div>
@@ -3619,75 +3756,88 @@ export default function MarketingPage() {
 
               {competitorResult && (
                 <div className="space-y-6">
-                  {/* Scraped Data */}
-                  {competitorResult.scraped_data && (
+                  {/* Scraped Data
+                      FIX: this card read competitorResult.scraped_data.* --
+                      a nested wrapper and field names (tech_stack, word_count,
+                      headings_count, images_count, social_links) the backend
+                      has never returned. POST /api/competitor/analyze returns
+                      a flat object (title, meta_description, technology_stack,
+                      social_presence, data_source), so this whole card was
+                      silently invisible every time. Now mapped to the real
+                      response shape. */}
+                  {competitorResult.title && (
                     <div className="bg-slate-950/40 border border-slate-900 rounded-2xl p-6 shadow-xl animate-fade-in text-xs text-slate-300 space-y-4">
-                      <h4 className="text-[10px] text-slate-500 font-mono uppercase font-bold border-b border-slate-800 pb-2">Page Metadata & Tech</h4>
+                      <h4 className="text-[10px] text-slate-500 font-mono uppercase font-bold border-b border-slate-800 pb-2">Page Metadata & Tech (Live Scrape)</h4>
                       <div>
-                        <div className="font-bold text-emerald-400 text-sm mb-1">{competitorResult.scraped_data.title}</div>
-                        <div className="text-slate-400">{competitorResult.scraped_data.meta_description}</div>
+                        <div className="font-bold text-emerald-400 text-sm mb-1">{competitorResult.title}</div>
+                        <div className="text-slate-400">{competitorResult.meta_description}</div>
                       </div>
-                      
-                      {competitorResult.scraped_data.tech_stack && competitorResult.scraped_data.tech_stack.length > 0 && (
+
+                      {competitorResult.technology_stack && competitorResult.technology_stack.length > 0 && (
                         <div>
-                          <strong className="block text-[10px] text-slate-500 uppercase font-mono mb-2">Tech Stack</strong>
+                          <strong className="block text-[10px] text-slate-500 uppercase font-mono mb-2">Detected Technology</strong>
                           <div className="flex flex-wrap gap-2">
-                            {competitorResult.scraped_data.tech_stack.map((t: string, i: number) => (
+                            {competitorResult.technology_stack.map((t: string, i: number) => (
                               <span key={i} className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-md text-[10px] text-slate-300 font-mono">{t}</span>
                             ))}
                           </div>
                         </div>
                       )}
-                      
-                      <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-800/50">
-                        <div>
-                          <strong className="block text-[10px] text-slate-500 uppercase font-mono mb-1">Page Stats</strong>
-                          <div className="text-slate-400">Word Count: {competitorResult.scraped_data.word_count}</div>
-                          <div className="text-slate-400">Headings: {competitorResult.scraped_data.headings_count}</div>
-                          <div className="text-slate-400">Images: {competitorResult.scraped_data.images_count}</div>
-                        </div>
-                        <div>
-                          <strong className="block text-[10px] text-slate-500 uppercase font-mono mb-1">Social Links found</strong>
-                          <div className="flex flex-wrap gap-1.5">
-                            {competitorResult.scraped_data.social_links?.length > 0 ? (
-                              competitorResult.scraped_data.social_links.map((link: string, i: number) => (
-                                <a key={i} href={link} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline truncate max-w-[120px]" title={link}>Link {i+1}</a>
-                              ))
-                            ) : <span className="text-slate-500">None found</span>}
-                          </div>
+
+                      <div className="pt-2 border-t border-slate-800/50">
+                        <strong className="block text-[10px] text-slate-500 uppercase font-mono mb-1">Social Links Found</strong>
+                        <div className="flex flex-wrap gap-1.5">
+                          {competitorResult.social_presence?.length > 0 ? (
+                            competitorResult.social_presence.map((link: string, i: number) => (
+                              <a key={i} href={link} target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline truncate max-w-[160px]" title={link}>Link {i+1}</a>
+                            ))
+                          ) : <span className="text-slate-500">None found</span>}
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {/* AI SWOT */}
+                  {/* AI SWOT
+                      FIX: previously rendered four permanently-empty headed
+                      sections with no explanation whenever no LLM was
+                      configured. The backend now genuinely runs the SWOT
+                      through Groq when GROQ_API_KEY is set
+                      (generation_source: "llm"); this now shows a clear
+                      "requires an LLM" notice instead of blank lists when
+                      it isn't. */}
                   {competitorResult.swot && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-emerald-950/20 border border-emerald-900/50 rounded-xl p-5">
-                        <h4 className="text-[10px] text-emerald-500 font-mono uppercase font-bold mb-3 flex items-center gap-2">💪 Strengths</h4>
-                        <ul className="list-disc pl-4 text-xs text-slate-300 space-y-1.5">
-                          {competitorResult.swot.strengths?.map((s: string, i: number) => <li key={i}>{s}</li>)}
-                        </ul>
+                    competitorResult.swot.generation_source === 'unavailable' ? (
+                      <div className="bg-amber-950/20 border border-amber-900/40 rounded-xl p-5 text-xs text-amber-300">
+                        {competitorResult.swot.note || 'SWOT generation requires an LLM (set GROQ_API_KEY) -- showing detected facts only for now.'}
                       </div>
-                      <div className="bg-rose-950/20 border border-rose-900/50 rounded-xl p-5">
-                        <h4 className="text-[10px] text-rose-500 font-mono uppercase font-bold mb-3 flex items-center gap-2">⚠️ Weaknesses</h4>
-                        <ul className="list-disc pl-4 text-xs text-slate-300 space-y-1.5">
-                          {competitorResult.swot.weaknesses?.map((w: string, i: number) => <li key={i}>{w}</li>)}
-                        </ul>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-emerald-950/20 border border-emerald-900/50 rounded-xl p-5">
+                          <h4 className="text-[10px] text-emerald-500 font-mono uppercase font-bold mb-3 flex items-center gap-2">💪 Strengths</h4>
+                          <ul className="list-disc pl-4 text-xs text-slate-300 space-y-1.5">
+                            {competitorResult.swot.strengths?.map((s: string, i: number) => <li key={i}>{s}</li>)}
+                          </ul>
+                        </div>
+                        <div className="bg-rose-950/20 border border-rose-900/50 rounded-xl p-5">
+                          <h4 className="text-[10px] text-rose-500 font-mono uppercase font-bold mb-3 flex items-center gap-2">⚠️ Weaknesses</h4>
+                          <ul className="list-disc pl-4 text-xs text-slate-300 space-y-1.5">
+                            {competitorResult.swot.weaknesses?.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                          </ul>
+                        </div>
+                        <div className="bg-amber-950/20 border border-amber-900/50 rounded-xl p-5">
+                          <h4 className="text-[10px] text-amber-500 font-mono uppercase font-bold mb-3 flex items-center gap-2">🎯 Opportunities</h4>
+                          <ul className="list-disc pl-4 text-xs text-slate-300 space-y-1.5">
+                            {competitorResult.swot.opportunities?.map((o: string, i: number) => <li key={i}>{o}</li>)}
+                          </ul>
+                        </div>
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+                          <h4 className="text-[10px] text-slate-400 font-mono uppercase font-bold mb-3 flex items-center gap-2">🛡️ Threats</h4>
+                          <ul className="list-disc pl-4 text-xs text-slate-300 space-y-1.5">
+                            {competitorResult.swot.threats?.map((t: string, i: number) => <li key={i}>{t}</li>)}
+                          </ul>
+                        </div>
                       </div>
-                      <div className="bg-amber-950/20 border border-amber-900/50 rounded-xl p-5">
-                        <h4 className="text-[10px] text-amber-500 font-mono uppercase font-bold mb-3 flex items-center gap-2">🎯 Opportunities</h4>
-                        <ul className="list-disc pl-4 text-xs text-slate-300 space-y-1.5">
-                          {competitorResult.swot.opportunities?.map((o: string, i: number) => <li key={i}>{o}</li>)}
-                        </ul>
-                      </div>
-                      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
-                        <h4 className="text-[10px] text-slate-400 font-mono uppercase font-bold mb-3 flex items-center gap-2">🛡️ Threats</h4>
-                        <ul className="list-disc pl-4 text-xs text-slate-300 space-y-1.5">
-                          {competitorResult.swot.threats?.map((t: string, i: number) => <li key={i}>{t}</li>)}
-                        </ul>
-                      </div>
-                    </div>
+                    )
                   )}
                 </div>
               )}
@@ -4540,15 +4690,20 @@ export default function MarketingPage() {
 
               {/* Video Result Render Player */}
               {videoResult && (
-                <div className="bg-slate-950/60 border border-emerald-500/30 rounded-3xl p-6 shadow-2xl space-y-4 animate-fade-in w-full">
+                <div className={`bg-slate-950/60 border ${videoIsFallback ? 'border-amber-500/30' : 'border-emerald-500/30'} rounded-3xl p-6 shadow-2xl space-y-4 animate-fade-in w-full`}>
                   <div className="flex items-center justify-between border-b border-slate-900 pb-3">
-                    <span className="text-[10px] font-mono text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
-                      <CheckCircle className="w-4 h-4" /> AI Video Stream Compiled
+                    <span className={`text-[10px] font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 ${videoIsFallback ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      <CheckCircle className="w-4 h-4" /> {videoIsFallback ? 'Stock Fallback Clip (Not AI-Generated)' : 'AI Video Stream Compiled'}
                     </span>
-                    <span className="text-[9px] font-mono bg-emerald-950 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded-full">
-                      MP4 HD • 24 FPS
+                    <span className={`text-[9px] font-mono border px-2 py-0.5 rounded-full ${videoIsFallback ? 'bg-amber-950 border-amber-500/30 text-amber-300' : 'bg-emerald-950 border-emerald-500/30 text-emerald-300'}`}>
+                      {videoIsFallback ? 'FALLBACK — GPU UNAVAILABLE' : 'MP4 HD • 24 FPS'}
                     </span>
                   </div>
+                  {videoIsFallback && (
+                    <p className="text-[11px] text-amber-300/90 bg-amber-950/40 border border-amber-500/20 rounded-xl px-3 py-2">
+                      No live GPU render (Colab/Kaggle/Hugging Face) was available for this request, so this is a generic stock clip unrelated to your prompt — not a genuine AI render. See notebooks/free_video_gpu.ipynb to enable real generation.
+                    </p>
+                  )}
 
                   <div className="relative rounded-2xl overflow-hidden bg-black border border-slate-900 shadow-2xl">
                     <video 
@@ -5128,30 +5283,39 @@ export default function MarketingPage() {
                 </div>
               ) : (
                 <>
+                  {/* FIX: these four cards used to read realAnalytics.summary.*
+                      fields (tokens_spent / images_generated / videos_generated /
+                      campaigns_created) that GET /api/analytics/dashboard has
+                      never returned, so they silently rendered "0" on every
+                      account regardless of real usage. Now mapped to the
+                      fields the endpoint actually returns. */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-slate-950/40 border border-slate-900 rounded-2xl p-5 space-y-1">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider">Tokens Spent</span>
-                      <span className="text-2xl font-black text-white font-mono block">{realAnalytics.summary?.tokens_spent || 0}</span>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider">Tokens Balance</span>
+                      <span className="text-2xl font-black text-white font-mono block">{realAnalytics.tokens_balance ?? 0}</span>
                     </div>
                     <div className="bg-slate-950/40 border border-slate-900 rounded-2xl p-5 space-y-1">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider">Images Generated</span>
-                      <span className="text-2xl font-black text-white font-mono block">{realAnalytics.summary?.images_generated || 0}</span>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider">Total Tokens Spent</span>
+                      <span className="text-2xl font-black text-white font-mono block">{realAnalytics.total_tokens_spent ?? 0}</span>
                     </div>
                     <div className="bg-slate-950/40 border border-slate-900 rounded-2xl p-5 space-y-1">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider">Videos Generated</span>
-                      <span className="text-2xl font-black text-white font-mono block">{realAnalytics.summary?.videos_generated || 0}</span>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider">Tokens Used Today</span>
+                      <span className="text-2xl font-black text-white font-mono block">{realAnalytics.daily_token_usage?.length ? realAnalytics.daily_token_usage[realAnalytics.daily_token_usage.length - 1].tokens : 0}</span>
                     </div>
                     <div className="bg-slate-950/40 border border-slate-900 rounded-2xl p-5 space-y-1">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider">Campaigns Created</span>
-                      <span className="text-2xl font-black text-white font-mono block">{realAnalytics.summary?.campaigns_created || 0}</span>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase font-bold tracking-wider">Actions Logged</span>
+                      <span className="text-2xl font-black text-white font-mono block">{realAnalytics.recent_activity?.length ?? 0}</span>
                     </div>
                   </div>
 
                   <div className="bg-slate-950/40 border border-slate-900 rounded-2xl p-6 space-y-4 shadow-xl">
                     <span className="text-[10px] font-mono text-slate-500 uppercase font-bold tracking-wider block">Daily Token Usage (Last 7 Days)</span>
                     <div className="flex items-end justify-between h-40 pt-4 px-2 border-b border-slate-900">
-                      {realAnalytics.usage_history?.map((day: any, i: number) => {
-                        const maxUsage = Math.max(...realAnalytics.usage_history.map((d: any) => d.tokens));
+                      {/* FIX: was realAnalytics.usage_history, a field the backend
+                          has never returned (the real field is daily_token_usage),
+                          so this chart always rendered empty. */}
+                      {realAnalytics.daily_token_usage?.map((day: any, i: number) => {
+                        const maxUsage = Math.max(...realAnalytics.daily_token_usage.map((d: any) => d.tokens));
                         const height = maxUsage > 0 ? (day.tokens / maxUsage) * 100 : 0;
                         return (
                           <div key={i} className="flex flex-col items-center gap-2 flex-1 group">
@@ -5169,15 +5333,23 @@ export default function MarketingPage() {
                     <div className="bg-slate-950/40 border border-slate-900 rounded-2xl p-6 shadow-xl space-y-4">
                       <span className="text-[10px] font-mono text-slate-500 uppercase font-bold tracking-wider block">Recent Activity</span>
                       <div className="space-y-3">
-                        {realAnalytics.recent_activity.map((activity: any, i: number) => (
+                        {/* FIX: was activity.action/.details/.timestamp/.cost --
+                            fields the real transaction records never had (the
+                            actual shape is tier_name/payment_method/created_at/amount)
+                            -- so every row rendered blank. */}
+                        {[...realAnalytics.recent_activity].reverse().map((activity: any, i: number) => (
                           <div key={i} className="flex justify-between items-center bg-slate-900/50 p-3 rounded-xl border border-slate-800">
                             <div className="flex flex-col gap-1">
-                              <span className="text-xs text-white font-bold">{activity.action}</span>
-                              <span className="text-[10px] text-slate-400 font-mono">{activity.details}</span>
+                              <span className="text-xs text-white font-bold">{activity.tier_name || 'Action'}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">{activity.payment_method || ''}</span>
                             </div>
                             <div className="flex flex-col items-end gap-1">
-                              <span className="text-[10px] font-mono text-slate-500">{new Date(activity.timestamp).toLocaleString()}</span>
-                              {activity.cost > 0 && <span className="text-[10px] font-mono text-rose-400">-{activity.cost} Tokens</span>}
+                              <span className="text-[10px] font-mono text-slate-500">{activity.created_at ? new Date(activity.created_at).toLocaleString() : ''}</span>
+                              {activity.amount < 0 ? (
+                                <span className="text-[10px] font-mono text-rose-400">-{Math.abs(activity.amount)} Tokens</span>
+                              ) : activity.amount > 0 ? (
+                                <span className="text-[10px] font-mono text-emerald-400">+{activity.amount} Tokens</span>
+                              ) : null}
                             </div>
                           </div>
                         ))}
