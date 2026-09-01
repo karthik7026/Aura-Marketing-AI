@@ -142,7 +142,9 @@ export default function LoginPage() {
       }
 
       localStorage.setItem('auth_token', data.access_token);
+      if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token);
       localStorage.setItem('auth_email', data.email);
+      if (data.role) localStorage.setItem('user_role', data.role);
       
       const savedWs = localStorage.getItem('workspace_type') || workspace;
       setSuccessMsg("Logged in successfully! Redirecting...");

@@ -78,6 +78,17 @@ class InMemoryCollection:
             
         return doc
 
+    def delete_one(self, query):
+        doc = self.find_one(query)
+        if doc and doc in self._data:
+            self._data.remove(doc)
+
+    def delete_many(self, query):
+        docs = list(self.find(query))
+        for doc in docs:
+            if doc in self._data:
+                self._data.remove(doc)
+
 class InMemoryDatabase:
     def __init__(self):
         self.users = InMemoryCollection()

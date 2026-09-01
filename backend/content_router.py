@@ -156,8 +156,19 @@ def generate_content(
     brief = req.brief.strip()
     system_prompt = _llm_prompts(content_type, req.tone, label)
 
+    # FIX: long-form types (a full blog article, a multi-question FAQ list)
+    # need more completion budget than the shared 1600-token default -- the
+    # Groq model in use (openai/gpt-oss-120b) is a reasoning model that
+    # spends tokens "thinking" before it writes the JSON body, and at a
+    # tighter budget it was hitting Groq's json_validate_failed / "max
+    # completion tokens reached before generating a valid document" error
+    # and silently falling back to the template every time for these two
+    # types specifically (confirmed live against the real API).
+    llm_max_tokens = 2800 if content_type in ("blog", "faq") else 1600
+
     llm_result = generate_json(
         system_prompt=system_prompt,
+        max_tokens=llm_max_tokens,
         user_prompt=(
             f"Content type: {label}\nTone: {req.tone}\n"
             f"Subject line (if provided): {req.subject or '(none given)'}\n"

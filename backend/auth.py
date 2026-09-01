@@ -3,22 +3,14 @@ import os
 import sys
 import secrets
 import datetime
+import uuid
 from jose import JWTError, jwt
 import bcrypt
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
+ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour
+REFRESH_TOKEN_EXPIRE_DAYS = 7     # 7 days
 
-# --- SECRET_KEY -------------------------------------------------------
-# FIX (security): this file used to hardcode a fallback JWT signing secret
-# directly in source (`os.getenv("SECRET_KEY", "b33fa43d...")`). Anyone who
-# could read the repo could forge valid tokens for any account. There is no
-# safe hardcoded fallback for a signing secret, so: use the real env var if
-# set, otherwise generate a random one for this process only, and warn
-# loudly. A random per-process secret means restarting the server
-# invalidates all existing tokens (acceptable for local dev) and MUST NOT be
-# relied on across multiple server instances or in production — set
-# SECRET_KEY in your .env for anything beyond local experimentation.
 _env_secret = os.getenv("SECRET_KEY")
 if _env_secret:
     SECRET_KEY = _env_secret
@@ -58,7 +50,16 @@ def create_access_token(data: dict) -> str:
     """Generates a signed JWT access token containing claims data."""
     to_encode = data.copy()
     expire = datetime.datetime.utcnow() + datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "type": "access"})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def create_refresh_token(data: dict) -> str:
+    """Generates a signed JWT refresh token with unique JTI."""
+    to_encode = data.copy()
+    expire = datetime.datetime.utcnow() + datetime.timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "type": "refresh", "jti": uuid.uuid4().hex})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 

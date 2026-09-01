@@ -1,17 +1,9 @@
 """
-Shared authentication dependency for every router.
-
-This replaces the per-router `get_current_user_helper` that used to be
-copy-pasted into every file (auth_router, wallet_router, image_router,
-webaudit_router, analytics_router, marketing_doctor, seo_engine, campaigns).
-That old helper silently fell back to a hardcoded `demo.user@aura.com`
-account with 9999 tokens whenever no/invalid bearer token was supplied,
-which meant every paid feature in this API was usable by anyone, without
-logging in or paying. See Aura_Marketing_AI_Review.md, section 4.
-
-get_current_user() below has NO anonymous fallback: it always requires a
-valid, non-expired JWT for a user that still exists in the database.
+Shared authentication and RBAC dependency for every router.
 """
+import datetime
+import uuid
+from typing import List
 from fastapi import Depends, HTTPException, status, Header
 from pymongo.database import Database
 
@@ -41,19 +33,28 @@ def get_current_user(authorization: str = Header(None), db: Database = Depends(g
 
     return user
 
-# ---------------------------------------------------------------------------
-# Shared token-metering helper.
-#
-# FIX: a manual click-through test found that Website Audit, Competitor
-# Intel, Content Studio, Social Studio, Ads Generator, and Email Marketing
-# all advertise a token cost in the UI (e.g. "10 TOKENS") but never actually
-# charged anything -- only /api/video/generate deducted tokens. This shared
-# helper is now used by those routes so the wallet behaves consistently:
-# every paid action either charges correctly or is rejected for
-# insufficient balance, and always records a real transaction.
-# ---------------------------------------------------------------------------
-import datetime
-import uuid
+
+def require_role(allowed_roles: List[str]):
+    """RBAC dependency factory that enforces allowed roles (owner, marketer, viewer)."""
+    def role_checker(current_user: dict = Depends(get_current_user)) -> dict:
+        user_role = current_user.get("role", "owner").lower()
+        if user_role not in [r.lower() for r in allowed_roles]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Action forbidden for role '{user_role}'. Required role: {allowed_roles}",
+            )
+        return current_user
+    return role_checker
+
+
+def require_verified_user(current_user: dict = Depends(get_current_user)) -> dict:
+    """Enforces email verification before accessing sensitive/paid features."""
+    if not current_user.get("is_verified", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email address not verified. Please click the verification link sent to your email.",
+        )
+    return current_user
 
 
 def charge_tokens(db, current_user: dict, amount: int, tier_name: str, payment_method: str) -> int:
@@ -86,4 +87,3 @@ def charge_tokens(db, current_user: dict, amount: int, tier_name: str, payment_m
         },
     )
     return current_tokens - amount
-

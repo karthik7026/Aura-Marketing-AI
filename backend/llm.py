@@ -31,7 +31,7 @@ def is_llm_configured() -> bool:
     return bool(GROQ_API_KEY)
 
 
-def generate_json(system_prompt: str, user_prompt: str, max_tokens: int = 900):
+def generate_json(system_prompt: str, user_prompt: str, max_tokens: int = 1600):
     """
     Calls Groq and asks for a JSON object back. Returns a dict on success,
     or None on any failure/misconfiguration — never raises, so callers can
